@@ -8,30 +8,26 @@ import {
 
 import { EthTransactionRequest, ProviderRpcError } from '../types';
 
-/**
- * SS58 format used when none is supplied. The Polymesh SDK calls `setSs58Format` with the connected
- * chain's format before calling `getAccounts`, so this is only relevant for standalone usage
- */
+/** SS58 format used when none is supplied. The SDK overrides it before calling `getAccounts` */
 export const DEFAULT_SS58_FORMAT = 42;
 
-/**
- * The 12 bytes appended to a 20 byte Ethereum address to build the `AccountId32` the `revive`
- * pallet dispatches as. Mirrors revive's `to_fallback_account_id` / `is_eth_derived`
- */
+/** The 12 bytes appended to an H160 to form the `AccountId32` `revive` dispatches as */
 export const ETH_ACCOUNT_SUFFIX = new Uint8Array(12).fill(0xee);
 
 const ACCOUNT_ID_LENGTH = 32;
 const H160_LENGTH = 20;
 
 /**
- * Whether an address is an Ethereum derived Polymesh address, i.e. the last 12 bytes of its decoded
- * `AccountId32` are `0xEE`
+ * Whether an address is Ethereum derived, i.e. its decoded `AccountId32` ends in 12 `0xEE` bytes
  *
- * @param address - SS58 encoded address
- * @param ss58Format - (optional) format the address is expected to be encoded with. If omitted, any
- *   format is accepted
+ * @note the SDK implements this, {@link ethAddressFromSs58} and {@link ss58FromEthAddress}
+ * separately in its `src/utils/eth.ts`, since it depends on `signing-manager-types` for types
+ * only. The `DEV_ACCOUNTS` vectors are mirrored there, so drift fails a test. Its `ss58Format` is
+ * required rather than optional by design: the SDK always knows the chain's format
  *
- * @note never throws — a malformed address simply returns `false`
+ * @param ss58Format - (optional) expected format. Any format is accepted when omitted
+ *
+ * @note never throws — a malformed address returns `false`
  */
 export function isEthDerivedAddress(address: string, ss58Format?: number): boolean {
   let decoded: Uint8Array;
@@ -48,12 +44,9 @@ export function isEthDerivedAddress(address: string, ss58Format?: number): boole
 }
 
 /**
- * Convert an Ethereum derived Polymesh address into the checksummed 0x prefixed H160 address that
- * controls it
+ * Convert an Ethereum derived Polymesh address into the checksummed H160 that controls it
  *
- * @param address - SS58 encoded address
- * @param ss58Format - (optional) format the address is expected to be encoded with. If omitted, any
- *   format is accepted
+ * @param ss58Format - (optional) expected format. Any format is accepted when omitted
  *
  * @throws if the address is malformed, or is not Ethereum derived
  */
@@ -79,11 +72,9 @@ export function ethAddressFromSs58(address: string, ss58Format?: number): string
 }
 
 /**
- * Convert a 0x prefixed H160 Ethereum address into the SS58 encoded Polymesh address the `revive`
- * pallet dispatches as, i.e. `<h160> ++ [0xEE; 12]`
+ * Convert an H160 into the Polymesh address `revive` dispatches as, i.e. `<h160> ++ [0xEE; 12]`
  *
- * @param h160 - 0x prefixed Ethereum address
- * @param ss58Format - (optional) format to encode the resulting address with. Defaults to 42
+ * @param ss58Format - (optional) format to encode with. Defaults to 42
  *
  * @throws if the passed value is not a valid Ethereum address
  */
@@ -116,8 +107,7 @@ export function isSameEthAddress(a: string, b: string): boolean {
 }
 
 /**
- * Parse a chain ID into a `bigint`, tolerating both `0x` prefixed hex (what `eth_chainId` returns)
- * and decimal strings
+ * Parse a chain ID, tolerating hex (what `eth_chainId` returns) and decimal strings
  *
  * @note returns `undefined` rather than throwing when the value cannot be parsed
  */
@@ -130,11 +120,10 @@ export function parseChainId(chainId: string): bigint | undefined {
 }
 
 /**
- * Whether two chain IDs refer to the same chain, tolerating differences in hex encoding
- * (e.g. `0x1` vs `0x01`) and casing
+ * Whether two chain IDs refer to the same chain, ignoring hex encoding and casing
  *
- * @note returns `false` when either value cannot be parsed, so an unreadable chain ID is treated as
- *   a mismatch. Failing closed is deliberate — see `assertWalletOnTargetChain`
+ * @note an unreadable chain ID counts as a mismatch, failing closed — see
+ *   `assertWalletOnTargetChain`
  */
 export function isSameChainId(a: string, b: string): boolean {
   const parsedA = parseChainId(a);
@@ -147,10 +136,7 @@ export function isSameChainId(a: string, b: string): boolean {
   return parsedA === parsedB;
 }
 
-/**
- * Render a chain ID as `<hex> (<decimal>)` for error messages, falling back to the raw value when it
- * cannot be parsed
- */
+/** Render a chain ID as `<hex> (<decimal>)` for error messages */
 export function formatChainId(chainId: string): string {
   const parsed = parseChainId(chainId);
 
@@ -158,15 +144,10 @@ export function formatChainId(chainId: string): string {
 }
 
 /**
- * Human readable messages for the standard EIP-1193 / JSON-RPC error codes a wallet can return
+ * Human readable messages for the EIP-1193 / JSON-RPC error codes a wallet can return
  *
- * @note a user rejection is signalled to the Polymesh SDK primarily by the EIP-1193 `code` 4001,
- *   which `mapProviderError` preserves on the rethrown error; the SDK maps it to
- *   `ErrorCode.TransactionRejectedByUser` / `TransactionStatus.Rejected`.
- *
- *   The 4001 message must nonetheless keep containing the string `Cancelled`. That substring is the
- *   fallback: it is what SDK versions older than the one that added the code check pattern match
- *   on, so keeping it is what lets this package work against both
+ * @note the 4001 message must keep containing `Cancelled`: SDK versions predating the `code` check
+ *   pattern match on it to detect a user rejection
  */
 export const PROVIDER_ERROR_MESSAGES: Record<number, string> = {
   4001: 'Cancelled: the request was rejected by the user',
@@ -209,11 +190,9 @@ export function isUnsupportedMethodError(error: unknown): boolean {
 }
 
 /**
- * Translate an error thrown by an EIP-1193 provider into an `Error` with a message the caller (and
- * the Polymesh SDK) can act on
+ * Translate a provider error into one the caller and the SDK can act on, preserving its `code`
  *
- * @param error - the value thrown by the provider
- * @param action - description of what was being attempted, e.g. `'sign the transaction'`
+ * @param action - what was being attempted, e.g. `'sign the transaction'`
  */
 export function mapProviderError(error: unknown, action: string): ProviderRpcError {
   const original = (error ?? {}) as ProviderRpcError;
@@ -234,21 +213,16 @@ export function mapProviderError(error: unknown, action: string): ProviderRpcErr
 }
 
 /**
- * Serialize an `EthTransactionRequest` into the object shape an EIP-1193 provider expects.
- *
- * Fields are passed through exactly as the SDK supplied them — nothing is estimated, defaulted or
- * inferred here. The only transformation is dropping `undefined` entries (wallets reject them) and
- * encoding the numeric `type` discriminator as the hex string every provider expects on the wire
+ * Serialize an `EthTransactionRequest` for an EIP-1193 provider, dropping the `undefined` fields
+ * wallets reject
  */
 export function serializeTransactionRequest(tx: EthTransactionRequest): Record<string, unknown> {
   const entries = Object.entries(tx) as [string, unknown][];
 
   return entries.reduce<Record<string, unknown>>((acc, [key, value]) => {
-    if (value === undefined) {
-      return acc;
+    if (value !== undefined) {
+      acc[key] = value;
     }
-
-    acc[key] = key === 'type' ? `0x${(value as number).toString(16)}` : value;
 
     return acc;
   }, {});

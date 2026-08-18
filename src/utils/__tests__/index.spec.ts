@@ -18,11 +18,13 @@ import {
 } from '../index';
 
 /**
- * The five prefunded Moonbeam dev keys documented in the chain-side handover appendix, together
- * with the Polymesh addresses derived from them as `<h160> ++ [0xEE; 12]`
+ * The five prefunded Moonbeam dev keys, with the Polymesh addresses derived from them.
  *
- * `h160` is typed as `HexString` rather than left to infer `string` so that the transactions built
- * from it below are actually typechecked against the published `EthTransactionRequest`
+ * `h160` is typed as `HexString` so the transactions built below are typechecked against
+ * `EthTransactionRequest`
+ *
+ * @note mirrored in `polymesh-sdk`'s `src/utils/__tests__/eth.ts`, which derives these addresses
+ * with its own copy of the code — see the note in `../index.ts`
  */
 export const DEV_ACCOUNTS: {
   name: string;
@@ -62,9 +64,7 @@ export const DEV_ACCOUNTS: {
   },
 ];
 
-/**
- * a native (sr25519) Polymesh address, i.e. one that is NOT Ethereum derived
- */
+/** a native (sr25519) Polymesh address, i.e. one that is NOT Ethereum derived */
 export const NATIVE_ADDRESS = '5Ef2XHepJvTUJLhhx39Nf5iqu6AACrfFAmc6AW8a3hKF4Rdc';
 
 describe('address derivation utils', () => {
@@ -298,10 +298,10 @@ describe('serializeTransactionRequest', () => {
     nonce: '0x0',
     maxFeePerGas: '0x5af3107a4000',
     maxPriorityFeePerGas: '0x0',
-    type: 2,
+    type: '0x2',
   };
 
-  it('should pass every supplied field through unchanged, except the type discriminator', () => {
+  it('should pass every supplied field through unchanged', () => {
     expect(serializeTransactionRequest(tx)).toEqual({
       from: tx.from,
       to: tx.to,
@@ -316,10 +316,6 @@ describe('serializeTransactionRequest', () => {
     });
   });
 
-  it('should hex encode a legacy transaction type', () => {
-    expect(serializeTransactionRequest({ ...tx, type: 0 })).toMatchObject({ type: '0x0' });
-  });
-
   it('should drop undefined fields', () => {
     const result = serializeTransactionRequest({
       ...tx,
@@ -327,7 +323,7 @@ describe('serializeTransactionRequest', () => {
       maxFeePerGas: undefined,
       maxPriorityFeePerGas: undefined,
       gasPrice: '0x5af3107a4000',
-      type: 0,
+      type: '0x0',
     });
 
     expect(result).not.toHaveProperty('nonce');

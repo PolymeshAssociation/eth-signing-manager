@@ -1,5 +1,11 @@
 /* istanbul ignore file */
 
+export {
+  fromEthersWallet,
+  fromViemAccount,
+  toEthersTransaction,
+  toViemTransaction,
+} from './adapters';
 export { EthSigningManager } from './lib/eth-signing-manager';
 export {
   DEFAULT_SS58_FORMAT,
@@ -12,6 +18,8 @@ export {
 
 export type {
   Eip1193Provider,
+  EthAccountLike,
+  EthersTransactionRequest,
   EthLocalAccount,
   EthSigner,
   EthSignerCapabilities,
@@ -24,4 +32,5 @@ export type {
   ProviderRpcError,
   ResolvedCapabilities,
   UnsubCallback,
+  ViemTransactionRequest,
 } from './types';

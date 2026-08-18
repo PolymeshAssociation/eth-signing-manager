@@ -1,3 +1,14 @@
 {
-  "out": "docs"
+  "$schema": "https://typedoc.org/schema.json",
+  "out": "docs",
+  "blockTags": [
+    "@deprecated",
+    "@param",
+    "@remarks",
+    "@returns",
+    "@note",
+    "@example",
+    "@throws",
+    "@see"
+  ]
 }

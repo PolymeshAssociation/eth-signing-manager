@@ -3,11 +3,7 @@ import { HexString, isEthSigningManager } from '@polymeshassociation/signing-man
 import { Eip1193Provider, EthLocalAccount, EthSigner, EthTransactionRequest } from '../../types';
 import { EthExternalSigner, EthSigningManager } from '../eth-signing-manager';
 
-/**
- * `h160` is deliberately typed as `HexString` rather than left to infer `string`: the published
- * `EthTransactionRequest` narrows `from`/`to` to `HexString`, and typing the fixtures is what keeps
- * `tsc` checking the transactions these tests build instead of waving them through
- */
+/** `h160` is typed as `HexString` so `tsc` checks the transactions these tests build */
 interface DevAccount {
   h160: HexString;
   ss58Format42: string;
@@ -32,13 +28,10 @@ const SAMPLE_TX: EthTransactionRequest = {
   nonce: '0x0',
   maxFeePerGas: '0x5af3107a4000',
   maxPriorityFeePerGas: '0x0',
-  type: 2,
+  type: '0x2',
 };
 
-/**
- * Fetch a required capability method off an `EthSigner`, throwing a descriptive error (rather than
- * a bare non-null assertion) if the test set up the manager without it
- */
+/** Fetch a required capability method off an `EthSigner`, erroring clearly when it is missing */
 function requireSignTransaction(signer: EthSigner): NonNullable<EthSigner['signTransaction']> {
   const { signTransaction } = signer;
   if (!signTransaction) {
@@ -55,9 +48,7 @@ function requireSendTransaction(signer: EthSigner): NonNullable<EthSigner['sendT
   return sendTransaction;
 }
 
-/**
- * Build a mock EIP-1193 provider whose `request` is driven by the passed handler
- */
+/** Build a mock EIP-1193 provider whose `request` is driven by the passed handler */
 function createMockProvider(
   request: jest.Mock,
   { withEvents = true }: { withEvents?: boolean } = {}
@@ -569,9 +560,7 @@ describe('EthSigningManager', () => {
     });
 
     describe('target chain validation', () => {
-      /**
-       * Build a provider mock reporting a given chain, resolving sign/send if they are reached
-       */
+      /** Build a provider mock reporting a given chain, resolving sign/send if they are reached */
       function createChainMock(walletChainId: string): jest.Mock {
         return jest.fn().mockImplementation(({ method }) => {
           if (method === 'eth_requestAccounts') return Promise.resolve([ALITH.h160]);
@@ -623,10 +612,8 @@ describe('EthSigningManager', () => {
       });
 
       /**
-       * `EthTransactionRequest.chainId` is documented as a MUST: the signer signs for the chain in
-       * the request, never for whichever chain its provider happens to report. The two are equal in
-       * value here but differ in spelling, so a signer that substituted the provider's answer would
-       * be caught
+       * The signer must sign for the request's chain, never the provider's. Equal in value here but
+       * spelled differently, so substituting the provider's answer would be caught
        */
       it.each([
         ['sendTransaction', 'eth_sendTransaction', requireSendTransaction],

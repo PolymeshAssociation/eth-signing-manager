@@ -31,9 +31,7 @@ import {
   ss58FromEthAddress,
 } from '../utils';
 
-/**
- * EIP-1193 error code for "the user rejected the request"
- */
+/** EIP-1193 error code for "the user rejected the request" */
 const USER_REJECTED_CODE = 4001;
 
 const SCALE_PAYLOAD_MESSAGE =
@@ -45,37 +43,29 @@ const SIGN_TRANSACTION_UNSUPPORTED_MESSAGE =
 /**
  * @hidden
  *
- * A `PolkadotSigner` that always throws. Ethereum keys cannot produce a signature the chain will
- * accept for a SCALE `SignerPayload`, so failing loudly is the only correct behaviour. The Polymesh
- * SDK never invokes this on the Ethereum path, but the `SigningManager` interface requires it
+ * A `PolkadotSigner` that always throws. Ethereum keys cannot sign SCALE payloads, and the SDK
+ * never calls this on the Ethereum path, but `SigningManager` requires it
  */
 export class EthExternalSigner implements PolkadotSigner {
-  /**
-   * @throws always
-   */
+  /** @throws always */
   public async signPayload(): Promise<SignerResult> {
     throw new Error(`signPayload: ${SCALE_PAYLOAD_MESSAGE}`);
   }
 
-  /**
-   * @throws always
-   */
+  /** @throws always */
   public async signRaw(): Promise<SignerResult> {
     throw new Error(`signRaw: ${SCALE_PAYLOAD_MESSAGE}`);
   }
 }
 
 /**
- * Signing manager that manages Polymesh Accounts controlled by Ethereum keys.
+ * Signing manager for Polymesh Accounts controlled by Ethereum keys.
  *
- * Polymesh's `revive` pallet lets an Ethereum key dispatch any runtime call as the Account
- * `AccountId32 = <20 byte H160> ++ [0xEE; 12]`, by putting the SCALE encoded call in the `data`
- * field of an Ethereum transaction. This manager enumerates the Ethereum Accounts and gets that
- * transaction signed, for the SDK to broadcast, or signed and broadcast by the wallet itself.
+ * `revive` lets an Ethereum key dispatch any runtime call as `AccountId32 = <h160> ++ [0xEE; 12]`,
+ * with the SCALE encoded call in the transaction's `data`. This manager enumerates those Accounts
+ * and gets the transaction signed, or signed and broadcast by the wallet.
  *
- * The transaction itself — gas, nonce, destination and chain ID — is built entirely by the Polymesh
- * SDK from the Substrate connection. This manager never estimates gas, fetches a nonce or knows the
- * destination address
+ * The SDK builds the transaction — this manager never estimates gas or fetches a nonce
  */
 export class EthSigningManager implements SigningManager, IEthSigningManager {
   private _ss58Format: number = DEFAULT_SS58_FORMAT;
@@ -92,27 +82,13 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
    *
    * Accounts and capabilities are resolved once, here, so that `getEthSigner` can be synchronous
    *
-   * @param args.provider - an EIP-1193 provider (`window.ethereum`, WalletConnect, Coinbase SDK).
-   *   Mutually exclusive with `args.accounts`
-   * @param args.requestAccounts - (optional, provider only) whether to call `eth_requestAccounts`,
-   *   prompting the user to connect. Defaults to `true`. Pass `false` to only read Accounts the
-   *   dApp has already been authorized for
-   * @param args.accounts - one or more local (in process) accounts, e.g. a viem `LocalAccount` or
-   *   an ethers `Wallet` adapter. Mutually exclusive with `args.provider`
-   * @param args.ss58Format - (optional) SS58 format for the returned Polymesh addresses. Defaults
-   *   to 42. The Polymesh SDK overrides this with the connected chain's format
-   * @param args.capabilities - (optional) explicit capability overrides
+   * @param args - either a `provider` or local `accounts`, never both. See
+   *   {@link EthSigningManagerProviderArgs} and {@link EthSigningManagerLocalArgs} for every field
    *
-   * @note capability defaults are conservative, because `eth_signTransaction` support cannot be
-   *   feature detected without sending a request to the wallet:
-   *   - EIP-1193 providers default to `{ signTransaction: false, sendTransaction: true }`, since
-   *     MetaMask (and wallets modelled on it) answer `eth_signTransaction` with
-   *     "method not supported"
-   *   - local accounts default to `{ signTransaction: true, sendTransaction: false }`, since they
-   *     sign in process and have no way to broadcast
-   *   - `eip1559` defaults to `true` for both
-   *   Override any of them explicitly when you know better, e.g. a Ledger or Fireblocks wallet
-   *   reached over WalletConnect that does implement `eth_signTransaction`
+   * @note capability defaults are conservative, since `eth_signTransaction` support cannot be
+   *   feature detected without asking the wallet. Providers default to broadcasting, local accounts
+   *   to signing, and `eip1559` to `true`. Override when you know better, e.g. a Ledger over
+   *   WalletConnect that does implement `eth_signTransaction`
    *
    * @throws
    *   - if neither `provider` nor `accounts` is passed
@@ -203,11 +179,7 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
     this._capabilities = capabilities;
     this.ethAccounts = ethAccounts;
 
-    /*
-     * `capabilities` on the runtime signer carries only what the object's shape cannot already
-     * say. Whether this signer can sign or broadcast is expressed solely by which of the two
-     * methods is attached below — the SDK reads that, and never a flag
-     */
+    /* the SDK reads which methods are attached below, so `capabilities` carries only `eip1559` */
     const ethSigner: EthSigner = { capabilities: { eip1559: capabilities.eip1559 } };
 
     if (capabilities.signTransaction) {
@@ -255,27 +227,22 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   }
 
   /**
-   * Set the SS58 format in which the returned Polymesh addresses will be encoded
+   * Set the SS58 format the returned Polymesh addresses are encoded with
    *
-   * @note the Polymesh SDK calls this with the connected chain's format before calling
-   *   `getAccounts`. Until then the manager uses 42
+   * @note the SDK calls this before `getAccounts`. Until then the manager uses 42
    */
   public setSs58Format(ss58Format: number): void {
     this._ss58Format = ss58Format;
   }
 
-  /**
-   * The SS58 format currently used to encode the returned Polymesh addresses
-   */
+  /** The SS58 format currently used to encode the returned Polymesh addresses */
   public get ss58Format(): number {
     return this._ss58Format;
   }
 
   /**
-   * Return the Polymesh addresses of all Ethereum Accounts in the wallet.
-   *
-   * Each Ethereum address `h160` is returned as the SS58 encoding of `<h160> ++ [0xEE; 12]`, which
-   * is the `AccountId32` the `revive` pallet dispatches as
+   * Return the Polymesh addresses of every Ethereum Account in the wallet, i.e. each `h160` SS58
+   * encoded as `<h160> ++ [0xEE; 12]`
    */
   public async getAccounts(): Promise<string[]> {
     const ethAccounts = await this.getEthAccounts();
@@ -283,11 +250,7 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
     return ethAccounts.map((address) => ss58FromEthAddress(address, this._ss58Format));
   }
 
-  /**
-   * Return the underlying Ethereum (H160) addresses, EIP-55 checksummed.
-   *
-   * They are returned in the same order as `getAccounts`, so the two can be zipped
-   */
+  /** Return the underlying H160 addresses, checksummed, in the same order as `getAccounts` */
   public async getEthAccounts(): Promise<string[]> {
     const { provider } = this;
 
@@ -307,8 +270,7 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   }
 
   /**
-   * Convert an Ethereum derived Polymesh address into the checksummed Ethereum address controlling
-   * it
+   * Convert an Ethereum derived Polymesh address into the checksummed H160 controlling it
    *
    * @throws if the address is not Ethereum derived
    */
@@ -317,8 +279,7 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   }
 
   /**
-   * Convert an Ethereum address into the Polymesh address it controls, encoded with this manager's
-   * SS58 format
+   * Convert an H160 into the Polymesh address it controls, in this manager's SS58 format
    *
    * @throws if the passed value is not a valid Ethereum address
    */
@@ -327,51 +288,38 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   }
 
   /**
-   * Return a signer object that throws for every operation.
-   *
-   * Ethereum keys cannot sign the SCALE payloads a natively signed extrinsic requires, so there is
-   * no meaningful implementation. The Polymesh SDK routes Ethereum derived Accounts to
-   * `getEthSigner` instead and never calls this
+   * Return a signer that throws for every operation. Ethereum keys cannot sign SCALE payloads, and
+   * the SDK uses `getEthSigner` instead
    */
   public getExternalSigner(): PolkadotSigner {
     return this.externalSigner;
   }
 
   /**
-   * Return the Ethereum signer the Polymesh SDK uses to sign or submit the
-   * Ethereum transaction carrying the SCALE encoded runtime call.
-   *
-   * Synchronous, because capabilities were resolved in `create`
+   * Return the signer the SDK uses for the Ethereum transaction carrying the runtime call.
+   * Synchronous, because `create` resolved the capabilities
    */
   public getEthSigner(): EthSigner {
     return this.ethSigner;
   }
 
   /**
-   * What `create` resolved this wallet to be able to do, from its conservative defaults plus any
-   * overrides. See `create` for how the defaults are chosen.
+   * What `create` resolved this wallet to be able to do.
    *
-   * This is diagnostic, and reports a *construction time* decision — it is deliberately not the
-   * runtime `EthSignerCapabilities` the SDK reads. To ask what the signer will actually do, check
-   * which methods `getEthSigner()` exposes, which is the same thing the SDK checks
+   * Diagnostic only. For what the signer will actually do, check which methods `getEthSigner()`
+   * exposes — that is what the SDK reads
    */
   public get resolvedCapabilities(): ResolvedCapabilities {
     return { ...this._capabilities };
   }
 
   /**
-   * Subscribe to any change in the wallet's Accounts. This can be either from an Account being
-   * added/removed, or from the user changing the selected Account.
+   * Subscribe to Accounts being added, removed or selected in the wallet. By convention the
+   * selected Account is first, though that is up to the wallet
    *
-   * The callback is called with the new array of Polymesh addresses. Convention is for the
-   * currently selected Account to be first, but that depends on the wallet implementation
+   * @param callbackWithEthAddresses - pass `true` for H160 addresses instead of Polymesh ones
    *
-   * @param cb - called with the new Accounts
-   * @param callbackWithEthAddresses - pass `true` to receive the raw Ethereum (H160) addresses
-   *   instead of the derived Polymesh addresses
-   *
-   * @note returns a no-op unsubscribe callback when the manager wraps local accounts, or a provider
-   *   that does not support events
+   * @note the unsubscribe callback is a no-op for local accounts, or a provider without events
    */
   public onAccountChange(
     cb: (accounts: string[]) => void,
@@ -391,12 +339,9 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   }
 
   /**
-   * Subscribe to a change in the wallet's selected network (i.e. the user switching chains).
+   * Subscribe to the user switching the wallet to another chain
    *
-   * The callback is called with the new network information
-   *
-   * @note returns a no-op unsubscribe callback when the manager wraps local accounts, or a provider
-   *   that does not support events
+   * @note the unsubscribe callback is a no-op for local accounts, or a provider without events
    */
   public onNetworkChange(cb: (networkInfo: NetworkInfo) => void): UnsubCallback {
     return this.subscribe('chainChanged', (chainId: HexString) => {
@@ -428,8 +373,7 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   /**
    * @hidden
    *
-   * Return the raw signed transaction bytes, letting the SDK broadcast and track the
-   * result over its existing Substrate connection
+   * Return the raw signed bytes, for the SDK to broadcast over its Substrate connection
    */
   private async signTransaction(tx: EthTransactionRequest): Promise<HexString> {
     const { provider } = this;
@@ -465,8 +409,7 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   /**
    * @hidden
    *
-   * Have the wallet sign and broadcast, returning the Ethereum transaction hash. The SDK
-   * correlates that hash back to the Substrate extrinsic
+   * Have the wallet sign and broadcast, returning the hash the SDK correlates to the extrinsic
    */
   private async sendTransaction(tx: EthTransactionRequest): Promise<HexString> {
     const { provider } = this;
@@ -493,15 +436,10 @@ export class EthSigningManager implements SigningManager, IEthSigningManager {
   /**
    * @hidden
    *
-   * Verify that the wallet is connected to the chain the transaction targets, before asking it to
-   * sign or broadcast anything.
+   * Verify the wallet is on the chain the transaction targets, before it signs anything.
    *
-   * The SDK reads `chainId` from the connected Polymesh chain's `consts.revive.chainId`, so the
-   * request already carries the correct value — this only has to confirm the wallet agrees. Without
-   * the check, a wallet left on a different network (Ethereum Mainnet being the obvious case) can
-   * broadcast the SCALE encoded call to that network instead, where the destination is not a
-   * contract: the caller spends gas for no effect, the Polymesh transaction never happens, and the
-   * SDK waits for a correlation that will never arrive
+   * A wallet left on another network would broadcast the encoded Polymesh call there, spending gas
+   * for no effect while the SDK waits for a correlation that never arrives
    *
    * @throws if the wallet is on a different chain, or its chain ID cannot be read
    */

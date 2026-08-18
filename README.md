@@ -97,31 +97,24 @@ SDK to the wallet mid-flight would be a worse failure mode than a loud error.
 
 ## Usage — a local account (viem / ethers)
 
-`viem` and `ethers` are **not** dependencies of this package. Instead, pass an object satisfying a
-minimal structural interface:
+`viem` and `ethers` are **not** dependencies of this package. Adapt an account from either with
+`fromViemAccount` / `fromEthersWallet`, which convert the transaction into that library's native
+types before signing.
 
-```typescript
-interface EthLocalAccount {
-  address: string;
-  signTransaction(tx: EthTransactionRequest): Promise<HexString>; // raw signed (RLP) bytes
-}
-```
+Do not pass a viem or ethers account straight through: an `EthTransactionRequest` is EIP-1193 wire
+format (hex strings, `gas` rather than `gasLimit`), which viem rejects and ethers silently signs
+with a zero gas limit.
 
 ### viem
 
 ```typescript
 import { privateKeyToAccount } from 'viem/accounts';
-import { EthSigningManager, EthLocalAccount } from '@polymeshassociation/eth-signing-manager';
+import { EthSigningManager, fromViemAccount } from '@polymeshassociation/eth-signing-manager';
 import { Polymesh } from '@polymeshassociation/polymesh-sdk';
 
-const viemAccount = privateKeyToAccount('0x...');
+const account = fromViemAccount(privateKeyToAccount('0x...'));
 
-const localAccount: EthLocalAccount = {
-  address: viemAccount.address,
-  signTransaction: (tx) => viemAccount.signTransaction(tx),
-};
-
-const signingManager = await EthSigningManager.create({ accounts: [localAccount] });
+const signingManager = await EthSigningManager.create({ accounts: [account] });
 
 const polymesh = await Polymesh.connect({ nodeUrl, signingManager });
 ```
@@ -130,17 +123,24 @@ const polymesh = await Polymesh.connect({ nodeUrl, signingManager });
 
 ```typescript
 import { Wallet } from 'ethers';
-import { EthSigningManager, EthLocalAccount } from '@polymeshassociation/eth-signing-manager';
+import { EthSigningManager, fromEthersWallet } from '@polymeshassociation/eth-signing-manager';
 
-const wallet = new Wallet('0x...');
+const account = fromEthersWallet(new Wallet('0x...'));
 
-const localAccount: EthLocalAccount = {
-  address: wallet.address,
-  signTransaction: (tx) => wallet.signTransaction(tx),
-};
-
-const signingManager = await EthSigningManager.create({ accounts: [localAccount] });
+const signingManager = await EthSigningManager.create({ accounts: [account] });
 ```
+
+Any other in-process signer can implement `EthLocalAccount` directly, converting the request
+itself:
+
+```typescript
+interface EthLocalAccount {
+  address: string;
+  signTransaction(tx: EthTransactionRequest): Promise<HexString>; // raw signed (RLP) bytes
+}
+```
+
+`toViemTransaction(tx)` and `toEthersTransaction(tx)` are exported for that case.
 
 Local accounts always **sign only** (`signTransaction: true, sendTransaction: false`) — they sign
 in process and have no way to broadcast a transaction. Multiple accounts can be passed; the SDK
